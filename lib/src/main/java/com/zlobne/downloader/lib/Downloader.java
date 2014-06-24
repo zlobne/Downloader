@@ -7,8 +7,6 @@ import android.util.Log;
 import java.util.ArrayList;
 import java.util.Stack;
 
-import wj.app.lib.logger.Logger;
-
 /**
  * Created by Anton Prozorov on 31.03.14.
  */
@@ -113,7 +111,7 @@ public class Downloader {
                         } else {
                             if (downloadsCount == 0) {
                                 allCompleted = true;
-                                context.sendBroadcast(new Intent("wj.app.main.DOWNLOADS_COMPLETED"));
+                                context.sendBroadcast(new Intent(Constants.INTENT_ACTION));
                                 Log.d("Downloader", "all downloads completed");
                             }
                         }

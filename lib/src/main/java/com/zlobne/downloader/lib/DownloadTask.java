@@ -1,9 +1,17 @@
 package com.zlobne.downloader.lib;
 
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -35,6 +43,12 @@ public class DownloadTask {
             @Override
             public void run() {
                 String tmpFileName = fileName + ".tmp";
+                String zdlFileName = fileName + ".zdl";
+                File zdlFile = new File(zdlFileName);
+
+                long fileSize = 0;
+                long offset = 0;
+
                 state = new DownloadTaskState(0, url, fileName);
 
                 int err;
@@ -45,19 +59,35 @@ public class DownloadTask {
 //                    strUrl = strUrl.replace("%3A", ":");
                     state.setUrl(url);
 
+                    if (zdlFile.exists()) {
+                        BufferedReader reader = new BufferedReader(new FileReader(zdlFile));
+                        JSONObject jsonObject = new JSONObject(reader.readLine());
+                        fileSize = jsonObject.getLong("fileSize");
+                        offset = jsonObject.getLong("offset");
+                        reader.close();
+                    }
+
                     URL url1 = new URL(url);
                     HttpURLConnection connection = (HttpURLConnection) url1.openConnection();
                     connection.connect();
                     if (connection.getResponseCode() == 200) {
                         // this will be useful so that you can show a typical 0-100%
                         // progress bar
-                        state.setTotal(connection.getContentLength());
+                        long actualSize = connection.getContentLength();
+                        state.setTotal(actualSize);
                         if (listener != null) {
                             listener.onProgressUpdate(state);
                         }
+
                         // download the file
                         InputStream input = new BufferedInputStream(url1.openStream(),
                                 8192);
+
+                        if (actualSize == fileSize) {
+                            input.skip(offset);
+                        }
+
+                        fileSize = actualSize;
 
                         // Output stream
                         OutputStream output = new FileOutputStream(tmpFileName);
@@ -66,6 +96,7 @@ public class DownloadTask {
 
                         while ((count = input.read(data)) != -1) {
                             state.setCurrent(state.getCurrent() + count);
+                            offset += count;
                             output.write(data, 0, count);
                             if (listener != null) {
                                 listener.onProgressUpdate(state);
@@ -84,12 +115,26 @@ public class DownloadTask {
                             err = 1;
                             state.setCode(err);
                         }
+                        zdlFile.delete();
                     } else {
                         err = 1;
                         state.setCode(err);
                     }
                     connection.disconnect();
                 } catch (Exception e) {
+                    try {
+                        FileWriter writer = new FileWriter(zdlFile, false);
+                        JSONObject jsonObject = new JSONObject();
+                        jsonObject.put("fileSize", fileSize);
+                        jsonObject.put("offset", offset);
+                        writer.write(jsonObject.toString());
+                        writer.flush();
+                        writer.close();
+                    } catch (IOException e1) {
+                        e1.printStackTrace();
+                    } catch (JSONException e1) {
+                        e1.printStackTrace();
+                    }
                     err = 1;
                     state.setCode(err);
                 }

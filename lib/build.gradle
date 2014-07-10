@@ -1,15 +1,17 @@
 apply plugin: 'android-library'
 
+version = "0.1"
+
 android {
     compileSdkVersion 19
     buildToolsVersion "19.1.0"
 
     defaultConfig {
-        packageName "com.zlobne.downloader.lib"
+        applicationId "com.zlobne.downloader.lib"
         minSdkVersion 8
         targetSdkVersion 19
         versionCode 1
-        versionName "1.0"
+        versionName version
     }
     buildTypes {
         release {
@@ -22,5 +24,17 @@ android {
 dependencies {
     compile fileTree(dir: 'libs', include: ['*.jar'])
     compile 'com.android.support:appcompat-v7:19.+'
-    compile 'com.android.support:appcompat-v7:19.+'
 }
+
+task clearJar(type: Delete) {
+    delete 'build/libs/downloader-' + version + '.jar'
+}
+
+task makeJar(type: Copy) {
+    from('build/bundles/release/')
+    into('build/libs/')
+    include('classes.jar')
+    rename ('classes.jar', 'downloader-' + version + '.jar')
+}
+
+makeJar.dependsOn(clearJar, build)

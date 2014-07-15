@@ -1,11 +1,14 @@
 package com.zlobne.downloader.lib;
 
 
+import android.util.Log;
+
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -14,8 +17,11 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.List;
+import java.util.Map;
 
 
 /*
@@ -27,8 +33,13 @@ import java.net.URL;
 
 public class DownloadTask {
 
+    private boolean kill = false;
+
     private DownloadTaskListener listener;
     private DownloadTaskState state;
+
+    private InputStream input;
+    private RandomAccessFile output;
 
     public DownloadTask() { }
 
@@ -45,105 +56,137 @@ public class DownloadTask {
                 String tmpFileName = fileName + ".tmp";
                 String zdlFileName = fileName + ".zdl";
                 File zdlFile = new File(zdlFileName);
+                File tmpFile = new File(tmpFileName);
 
                 long fileSize = 0;
                 long offset = 0;
+                String ifRange = "";
 
                 state = new DownloadTaskState(0, url, fileName);
 
                 int err;
                 int count;
                 try {
-//                    String strUrl = URLEncoder.encode(url, "UTF-8");
-//                    strUrl = strUrl.replace("%2F", "/");
-//                    strUrl = strUrl.replace("%3A", ":");
                     state.setUrl(url);
 
-                    if (zdlFile.exists()) {
+                    if (zdlFile.exists() && tmpFile.exists()) {
                         BufferedReader reader = new BufferedReader(new FileReader(zdlFile));
                         JSONObject jsonObject = new JSONObject(reader.readLine());
                         fileSize = jsonObject.getLong("fileSize");
-                        offset = jsonObject.getLong("offset");
+                        ifRange = jsonObject.getString("If-Range");
+                        offset = tmpFile.length();
                         reader.close();
                     }
 
                     URL url1 = new URL(url);
                     HttpURLConnection connection = (HttpURLConnection) url1.openConnection();
+                    if (offset > 0) {
+                        connection.setRequestProperty("Range", "bytes=" + (offset) + "-");
+                    }
+                    connection.setRequestProperty("If-Range", ifRange);
+//                    connection.setConnectTimeout(5000);
                     connection.connect();
-                    if (connection.getResponseCode() == 200) {
-                        // this will be useful so that you can show a typical 0-100%
-                        // progress bar
-                        long actualSize = connection.getContentLength();
-                        state.setTotal(actualSize);
+
+                    ifRange = connection.getHeaderField("ETag");
+                    if (ifRange == null || ifRange.equals("")) {
+                        ifRange = connection.getHeaderField("Last-Modified");
+                    }
+
+                    Log.d(Constants.TAG, connection.getResponseCode() + " " + connection.getResponseMessage());
+
+                    Map<String, List<String>> map = connection.getHeaderFields();
+                    Log.d(Constants.TAG, "header fields: " + map.toString());
+
+                    long actualSize = connection.getContentLength();
+                    state.setTotal(actualSize);
+
+                    if (listener != null) {
+                        listener.onProgressUpdate(state);
+                    }
+
+                    input = new BufferedInputStream(connection.getInputStream());
+
+                    fileSize = actualSize;
+
+                    output = new RandomAccessFile(tmpFileName, "rw");
+
+                    if (offset > 0) {
+                        output.seek(offset);
+                    }
+
+                    byte data[] = new byte[1024];
+
+//                    new Thread(new Runnable() {
+//                        @Override
+//                        public void run() {
+//                            while (!kill && listener != null) {
+//                                listener.onProgressUpdate(state);
+//                                try {
+//                                    Thread.sleep(1000);
+//                                } catch (InterruptedException e) {
+//                                    e.printStackTrace();
+//                                }
+//                            }
+//                        }
+//                    }).start();
+
+                    while (/*state.getTotal() > state.getCurrent() && */(count = input.read(data)) > 0) {
+                        state.setCurrent(state.getCurrent() + count);
+                        offset += count;
+                        output.write(data, 0, count);
                         if (listener != null) {
                             listener.onProgressUpdate(state);
                         }
+                    }
 
-                        // download the file
-                        InputStream input = new BufferedInputStream(url1.openStream(),
-                                8192);
+//                    output.setLength(fileSize);
 
-                        if (actualSize == fileSize) {
-                            input.skip(offset);
-                        }
-
-                        fileSize = actualSize;
-
-                        // Output stream
-                        OutputStream output = new FileOutputStream(tmpFileName);
-
-                        byte data[] = new byte[1024];
-
-                        while ((count = input.read(data)) != -1) {
-                            state.setCurrent(state.getCurrent() + count);
-                            offset += count;
-                            output.write(data, 0, count);
-                            if (listener != null) {
-                                listener.onProgressUpdate(state);
-                            }
-                        }
-
-                        // flushing output
-                        output.flush();
-
-                        // closing streams
-                        output.close();
-                        input.close();
-                        File from = new File(tmpFileName);
-                        File to = new File(fileName);
-                        if (!from.renameTo(to)) {
-                            err = 1;
-                            state.setCode(err);
-                        }
-                        zdlFile.delete();
-                    } else {
-                        err = 1;
+                    output.close();
+                    input.close();
+                    File from = new File(tmpFileName);
+                    File to = new File(fileName);
+                    if (!from.renameTo(to)) {
+                        err = 2;
                         state.setCode(err);
                     }
+                    zdlFile.delete();
                     connection.disconnect();
                 } catch (Exception e) {
                     try {
-                        FileWriter writer = new FileWriter(zdlFile, false);
-                        JSONObject jsonObject = new JSONObject();
-                        jsonObject.put("fileSize", fileSize);
-                        jsonObject.put("offset", offset);
-                        writer.write(jsonObject.toString());
-                        writer.flush();
-                        writer.close();
-                    } catch (IOException e1) {
-                        e1.printStackTrace();
-                    } catch (JSONException e1) {
-                        e1.printStackTrace();
+                        input.close();
+                        output.close();
+                    } catch (Exception e1) {
+                        Log.d(Constants.TAG, "" + e.getMessage());
                     }
+                    Log.d(Constants.TAG, "" + e.getMessage());
                     err = 1;
                     state.setCode(err);
                 }
+
+                kill = true;
 
                 if (listener != null)
                     if (state.getCode() == 0) {
                         listener.onDownloadTaskComplete(state);
                     } else {
                         listener.onDownloadTaskError(state);
+                        try {
+                            zdlFile.delete();
+                            OutputStream outputStream = new FileOutputStream(zdlFile, false);
+                            JSONObject jsonObject = new JSONObject();
+                            jsonObject.put("fileSize", fileSize);
+                            jsonObject.put("If-Range", ifRange);
+                            outputStream.write(jsonObject.toString().getBytes());
+                            outputStream.flush();
+                            outputStream.close();
+                            Log.d(Constants.TAG, "state saved");
+                        } catch (IOException e1) {
+                            Log.d(Constants.TAG, "IO exception " + e1.getMessage());
+                            e1.printStackTrace();
+                        } catch (JSONException e1) {
+                            Log.d(Constants.TAG, "JSON exception " + e1.getMessage());
+                            e1.printStackTrace();
+                        }
                     }
             }
         }).start();

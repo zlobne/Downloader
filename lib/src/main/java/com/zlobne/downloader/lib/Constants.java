@@ -5,4 +5,5 @@ package com.zlobne.downloader.lib;
  */
 public class Constants {
     public final static String INTENT_ACTION = "com.zlobne.downloader.DOWNLOADS_COMPLETED";
+    public final static String TAG = "zdl";
 }

@@ -1,6 +1,6 @@
 apply plugin: 'android-library'
 
-version = "0.1"
+version = "0.2"
 
 android {
     compileSdkVersion 19
@@ -31,7 +31,7 @@ task clearJar(type: Delete) {
 }
 
 task makeJar(type: Copy) {
-    from('build/bundles/release/')
+    from('build/intermediates/bundles/release/')
     into('build/libs/')
     include('classes.jar')
     rename ('classes.jar', 'downloader-' + version + '.jar')

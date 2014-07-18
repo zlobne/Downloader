@@ -33,6 +33,8 @@ import java.util.Map;
 
 public class DownloadTask {
 
+    private boolean cancel = false;
+
     private boolean kill = false;
 
     private DownloadTaskListener listener;
@@ -58,7 +60,7 @@ public class DownloadTask {
                 File zdlFile = new File(zdlFileName);
                 File tmpFile = new File(tmpFileName);
 
-                long fileSize = 0;
+//                long fileSize = 0;
                 long offset = 0;
                 String ifRange = "";
 
@@ -72,7 +74,7 @@ public class DownloadTask {
                     if (zdlFile.exists() && tmpFile.exists()) {
                         BufferedReader reader = new BufferedReader(new FileReader(zdlFile));
                         JSONObject jsonObject = new JSONObject(reader.readLine());
-                        fileSize = jsonObject.getLong("fileSize");
+//                        fileSize = jsonObject.getLong("fileSize");
                         ifRange = jsonObject.getString("If-Range");
                         offset = tmpFile.length();
                         reader.close();
@@ -106,7 +108,7 @@ public class DownloadTask {
 
                     input = new BufferedInputStream(connection.getInputStream());
 
-                    fileSize = actualSize;
+//                    fileSize = actualSize;
 
                     output = new RandomAccessFile(tmpFileName, "rw");
 
@@ -116,30 +118,28 @@ public class DownloadTask {
 
                     byte data[] = new byte[1024];
 
-//                    new Thread(new Runnable() {
-//                        @Override
-//                        public void run() {
-//                            while (!kill && listener != null) {
-//                                listener.onProgressUpdate(state);
-//                                try {
-//                                    Thread.sleep(1000);
-//                                } catch (InterruptedException e) {
-//                                    e.printStackTrace();
-//                                }
-//                            }
-//                        }
-//                    }).start();
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            while (!kill && listener != null) {
+                                listener.onProgressUpdate(state);
+                                try {
+                                    Thread.sleep(700);
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        }
+                    }).start();
 
-                    while (/*state.getTotal() > state.getCurrent() && */(count = input.read(data)) > 0) {
+                    while ((count = input.read(data)) > 0 && !(cancel)) {
                         state.setCurrent(state.getCurrent() + count);
                         offset += count;
                         output.write(data, 0, count);
-                        if (listener != null) {
-                            listener.onProgressUpdate(state);
-                        }
+//                        if (listener != null) {
+//                            listener.onProgressUpdate(state);
+//                        }
                     }
-
-//                    output.setLength(fileSize);
 
                     output.close();
                     input.close();
@@ -166,31 +166,42 @@ public class DownloadTask {
                 kill = true;
 
                 if (listener != null)
-                    if (state.getCode() == 0) {
-                        listener.onDownloadTaskComplete(state);
-                    } else {
-                        listener.onDownloadTaskError(state);
-                        try {
-                            zdlFile.delete();
-                            OutputStream outputStream = new FileOutputStream(zdlFile, false);
-                            JSONObject jsonObject = new JSONObject();
-                            jsonObject.put("fileSize", fileSize);
-                            jsonObject.put("If-Range", ifRange);
-                            outputStream.write(jsonObject.toString().getBytes());
-                            outputStream.flush();
-                            outputStream.close();
-                            Log.d(Constants.TAG, "state saved");
-                        } catch (IOException e1) {
-                            Log.d(Constants.TAG, "IO exception " + e1.getMessage());
-                            e1.printStackTrace();
-                        } catch (JSONException e1) {
-                            Log.d(Constants.TAG, "JSON exception " + e1.getMessage());
-                            e1.printStackTrace();
+                    if (!cancel) {
+                        if (state.getCode() == 0) {
+                            listener.onDownloadTaskComplete(state);
+                        } else {
+                            listener.onDownloadTaskError(state);
+                            saveStatus(zdlFile, ifRange);
                         }
+                    } else {
+                        listener.onDownloadTaskCancel(state);
+                        saveStatus(zdlFile, ifRange);
                     }
             }
         }).start();
     }
+
+    private void saveStatus(File zdlFile, String ifRange) {
+        try {
+            zdlFile.delete();
+            OutputStream outputStream = new FileOutputStream(zdlFile, false);
+            JSONObject jsonObject = new JSONObject();
+//                            jsonObject.put("fileSize", fileSize);
+            jsonObject.put("If-Range", ifRange);
+            outputStream.write(jsonObject.toString().getBytes());
+            outputStream.flush();
+            outputStream.close();
+            Log.d(Constants.TAG, "state saved");
+        } catch (IOException e1) {
+            Log.d(Constants.TAG, "IO exception " + e1.getMessage());
+            e1.printStackTrace();
+        } catch (JSONException e1) {
+            Log.d(Constants.TAG, "JSON exception " + e1.getMessage());
+            e1.printStackTrace();
+        }
+    }
+
+    public void cancel () { cancel = true; }
 
     public interface DownloadTaskListener {
 
@@ -199,6 +210,8 @@ public class DownloadTask {
         public void onDownloadTaskError(DownloadTaskState state);
 
         public void onProgressUpdate(DownloadTaskState state);
+
+        public void onDownloadTaskCancel(DownloadTaskState state);
 
     }
 

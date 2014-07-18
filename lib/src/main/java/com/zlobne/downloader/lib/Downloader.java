@@ -106,6 +106,11 @@ public class Downloader {
                                 public void onProgressUpdate(DownloadTask.DownloadTaskState state) {
 
                                 }
+
+                                @Override
+                                public void onDownloadTaskCancel(DownloadTask.DownloadTaskState state) {
+
+                                }
                             }).execute(download.getUrl(), download.getDest());
 //                            downloads.remove(0);
                         } else {
